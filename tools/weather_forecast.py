@@ -1,5 +1,5 @@
 """
-title: Open-Meteo Weather Forecast
+title: Weather Forecast
 description: Fetches weather forecasts from the Open-Meteo API (no API key required) and renders an interactive HTML weather widget with current conditions, hourly and daily forecasts. Icons are inline SVG, so the widget makes no external image requests.
 author: Ryan Pan/ Open-Meteo port
 author_url: https://github.com/mercurynomercy/openwebui-tools
