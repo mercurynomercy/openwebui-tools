@@ -4,17 +4,7 @@ description: Resolves the user's current location so other tools (weather, maps,
 author: Ryan Pan
 author_url: https://github.com/mercurynomercy/openwebui-tools
 funding_url: https://github.com/mercurynomercy/openwebui-tools
-version: 1.0.0
-license: MIT
-required_open_webui_version: 0.11.0
-"""
-"""
-title: Open-Meteo Weather Forecast
-description: Fetches weather forecasts from the Open-Meteo API (no API key required) and renders an interactive HTML weather widget with current conditions, hourly and daily forecasts. Icons are inline SVG, so the widget makes no external image requests.
-author: Ryan Pan/ Open-Meteo port
-author_url: https://github.com/mercurynomercy/openwebui-tools
-funding_url: https://github.com/mercurynomercy/openwebui-tools
-version: 2.0.0
+version: 1.1.0
 license: MIT
 required_open_webui_version: 0.11.0
 """
@@ -220,13 +210,26 @@ def _format(loc: Dict[str, Any]) -> str:
  
 def _place_query(loc: Dict[str, Any]) -> str:
     """A string other tools can pass straight into a geocoder.
- 
-    Deliberately city-level: many geocoders (Open-Meteo included) don't index
-    every suburb, so the suburb is reported separately rather than used here.
+
+    Most specific first, so a geocoder that indexes suburbs can use one and a
+    geocoder that doesn't can fall back to the city behind it.
     """
-    city = loc.get("city") or loc.get("suburb") or loc.get("region") or ""
+    parts = []
+    for key in ("suburb", "city", "region"):
+        value = loc.get(key)
+        if value and value not in parts:
+            parts.append(value)
+    if not parts:
+        return _format(loc)
     code = loc.get("country_code") or ""
-    return f"{city}, {code}" if city and code else city or _format(loc)
+    if code:
+        parts.append(code)
+    return ", ".join(parts)
+
+
+def _coord_query(loc: Dict[str, Any]) -> str:
+    """Coordinates in the 'lat,lon' form location-aware tools accept."""
+    return f"{loc.get('latitude')},{loc.get('longitude')}"
  
  
 class Tools:
@@ -406,7 +409,7 @@ class Tools:
             lines.append(f"Postcode: {loc['postcode']}")
         lines += [
             f"Place name for other tools: {_place_query(loc)}",
-            f"Coordinates: {loc['latitude']}, {loc['longitude']}",
+            f"Coordinates for other tools: {_coord_query(loc)}",
             f"Source: {loc.get('source', 'unknown')}"
             + (" (cached)" if cached else ""),
         ]
@@ -419,7 +422,9 @@ class Tools:
                 "and can be wrong on a VPN."
             )
         lines.append(
-            "Pass the place name above to weather or other location-aware tools."
+            "For location-aware tools, prefer the coordinates above (they are "
+            "exact and need no lookup) and pass the place name as the display "
+            "label, so the result is named for the suburb the user is in."
         )
         return "\n".join(lines)
  

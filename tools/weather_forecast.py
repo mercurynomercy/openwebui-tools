@@ -4,13 +4,14 @@ description: Fetches weather forecasts from the Open-Meteo API (no API key requi
 author: Ryan Pan/ Open-Meteo port
 author_url: https://github.com/mercurynomercy/openwebui-tools
 funding_url: https://github.com/mercurynomercy/openwebui-tools
-version: 2.0.0
+version: 2.1.0
 license: MIT
 required_open_webui_version: 0.11.0
 """
 
 import asyncio
 import html
+import re
 import uuid
 from datetime import datetime
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple, Union
@@ -430,6 +431,9 @@ def _generate_weather_embed(
     else:
         gust_line = f'<div style="font-size:9px;color:#666;margin-top:2px;">{wind_dir_str}</div>'
 
+    # Coordinate lookups have no country name; don't leave a dangling separator.
+    subtitle = f"{_esc(country)} · {_esc(date_str)}" if country else _esc(date_str)
+
     css = _WIDGET_CSS.replace("__WID__", widget_id)
     js = _WIDGET_JS.replace("__WID__", widget_id)
 
@@ -451,7 +455,7 @@ def _generate_weather_embed(
         <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;gap:12px;">
             <div>
                 <div style="font-size:18px;font-weight:600;color:#f0f0f0;letter-spacing:-0.2px;">{_esc(location_name)}</div>
-                <div style="font-size:10px;color:#888;font-weight:500;text-transform:uppercase;letter-spacing:1px;margin-top:2px;">{_esc(country)} · {_esc(date_str)}</div>
+                <div style="font-size:10px;color:#888;font-weight:500;text-transform:uppercase;letter-spacing:1px;margin-top:2px;">{subtitle}</div>
             </div>
             <div style="font-size:20px;color:#aaa;font-weight:300;text-align:right;">{_esc(time_str)}</div>
         </div>
@@ -526,37 +530,125 @@ def _generate_weather_embed(
 # --------------------------------------------------------------------------
 # Open-Meteo API access
 # --------------------------------------------------------------------------
-async def _geocode(
-    session: aiohttp.ClientSession, location: str, language: str
-) -> Dict[str, Any]:
-    """Resolve a place name to coordinates. Accepts 'Sydney' or 'Sydney, AU'."""
-    name = location.strip()
-    country_filter = None
-    if "," in name:
-        head, _, tail = name.partition(",")
-        tail = tail.strip()
-        if len(tail) == 2 and tail.isalpha():
-            name, country_filter = head.strip(), tail.upper()
+_COORD_RE = re.compile(
+    r"^\s*(-?\d{1,2}(?:\.\d+)?)\s*[,;/ ]\s*(-?\d{1,3}(?:\.\d+)?)\s*$"
+)
 
-    params = {"name": name, "count": 10, "language": language, "format": "json"}
+
+def _parse_coordinates(text: str) -> Optional[Tuple[float, float]]:
+    """Accept '-33.83, 151.07' so callers can skip the place-name lookup."""
+    match = _COORD_RE.match(text or "")
+    if not match:
+        return None
+    lat, lon = float(match.group(1)), float(match.group(2))
+    if -90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0:
+        return lat, lon
+    return None
+
+
+def _split_location(location: str) -> Tuple[List[str], Optional[str]]:
+    """'Carlton, Melbourne, AU' -> (['Carlton', 'Melbourne'], 'AU').
+
+    Open-Meteo's geocoder matches a single place name, not a comma-separated
+    hierarchy, so each segment becomes its own search candidate. Segments stay
+    in the given order, which is most specific first.
+    """
+    parts = [p.strip() for p in location.split(",") if p.strip()]
+    country = None
+    if len(parts) > 1 and len(parts[-1]) == 2 and parts[-1].isalpha():
+        country = parts.pop().upper()
+    return parts, country
+
+
+_ADMIN_FIELDS = ("admin1", "admin2", "admin3", "admin4")
+
+
+def _pick_hit(
+    results: List[Dict[str, Any]],
+    country: Optional[str],
+    context: Tuple[str, ...] = (),
+) -> Optional[Dict[str, Any]]:
+    """Best match for a name, given the rest of the location chain.
+
+    Ranking, in order:
+      1. An administrative area matching another segment of the chain. This is
+         what separates Carlton in Melbourne (admin2 'Melbourne') from Carlton
+         in Tasmania when the caller said 'Carlton, Melbourne, AU'.
+      2. Populated places over landforms. Feature codes starting with PPL are
+         settlements and a suburb is PPLX; without this a suburb can lose to a
+         same-named park, dam or cape.
+      3. Population, so a bare city name lands on the big one.
+    """
+    if country:
+        results = [r for r in results if r.get("country_code") == country]
+    if not results:
+        return None
+
+    wanted = {c.casefold() for c in context}
+
+    def rank(r: Dict[str, Any]) -> Tuple[int, int, int]:
+        areas = {
+            str(r[f]).casefold() for f in _ADMIN_FIELDS if r.get(f)
+        }
+        in_context = 0 if (wanted and areas & wanted) else 1
+        is_settlement = 0 if (r.get("feature_code") or "").startswith("PPL") else 1
+        return (in_context, is_settlement, -int(r.get("population") or 0))
+
+    return sorted(results, key=rank)[0]
+
+
+async def _search_name(
+    session: aiohttp.ClientSession, name: str, language: str
+) -> List[Dict[str, Any]]:
+    # Suburbs rank below same-named towns worldwide, so ask for a wide result
+    # set and do the choosing here. 100 is the API maximum.
+    params = {"name": name, "count": 100, "language": language, "format": "json"}
     async with session.get(GEOCODE_URL, params=params) as resp:
         if resp.status != 200:
             raise LookupError(f"geocoding service returned HTTP {resp.status}")
         data = await resp.json()
+    return data.get("results") or []
 
-    results = data.get("results") or []
-    if not results:
+
+async def _geocode(
+    session: aiohttp.ClientSession, location: str, language: str
+) -> Dict[str, Any]:
+    """Resolve a place name to coordinates.
+
+    Accepts 'Sydney', 'Sydney, AU' or a suburb-first chain such as
+    'Carlton, Melbourne, AU'. Candidates are tried most specific first,
+    so a suburb the geocoder knows wins over the city it sits in, and an
+    unknown suburb quietly falls back to the city instead of failing.
+    """
+    candidates, country = _split_location(location)
+    if not candidates:
+        raise LookupError("no location was provided")
+
+    # Cache responses so the country-agnostic retry costs no extra requests.
+    seen: Dict[str, List[Dict[str, Any]]] = {}
+    hit = None
+    for i, name in enumerate(candidates):
+        # The other segments say which of several same-named places is meant.
+        context = tuple(c for j, c in enumerate(candidates) if j != i)
+        seen[name] = await _search_name(session, name, language)
+        hit = _pick_hit(seen[name], country, context)
+        if hit:
+            break
+
+    if hit is None and country:
+        # The country code may simply be wrong; a named place still beats an error.
+        for i, name in enumerate(candidates):
+            context = tuple(c for j, c in enumerate(candidates) if j != i)
+            hit = _pick_hit(seen.get(name, []), None, context)
+            if hit:
+                break
+
+    if hit is None:
         raise LookupError(
             f"could not find a location named '{location}'. Try a more specific name."
         )
 
-    if country_filter:
-        matched = [r for r in results if r.get("country_code") == country_filter]
-        if matched:
-            results = matched
-
-    hit = results[0]
-    display = hit.get("name", name)
+    display = hit.get("name", candidates[0])
     if hit.get("admin1"):
         display = f"{display}, {hit['admin1']}"
 
@@ -776,6 +868,7 @@ class Tools:
     async def get_weather_forecast(
         self,
         location: str,
+        location_label: str = "",
         __event_emitter__: Optional[Callable[[Any], Awaitable[None]]] = None,
     ) -> Union[str, Tuple[HTMLResponse, str]]:
         """
@@ -785,8 +878,14 @@ class Tools:
         Open-Meteo, displays an interactive weather widget, and returns a text
         summary. No API key is required.
 
-        :param location: City name, optionally with a 2-letter country code
-            (e.g. "Sydney", "Tokyo, JP", "Paris, FR").
+        :param location: Either a place name or "latitude,longitude".
+            Place names may include a suburb and a 2-letter country code, most
+            specific first: "Melbourne", "Tokyo, JP", "Carlton, Melbourne, AU".
+            When a location tool has given you coordinates, pass those instead
+            ("-37.80,144.97") - they are exact and need no lookup.
+        :param location_label: Optional place name to show on the widget. Use it
+            with coordinates so the card names the suburb the user is in, e.g.
+            "Carlton, Melbourne".
         """
         if not location or not location.strip():
             return "Error: no location was provided."
@@ -806,9 +905,23 @@ class Tools:
                 }
             )
 
+        coords = _parse_coordinates(location)
+        label = (location_label or "").strip()
+
         try:
             async with aiohttp.ClientSession(timeout=REQUEST_TIMEOUT) as session:
-                place = await _geocode(session, location, self.valves.language)
+                if coords:
+                    lat, lon = coords
+                    place = {
+                        "latitude": lat,
+                        "longitude": lon,
+                        "name": label or f"{lat:.3f}, {lon:.3f}",
+                        "country": "",
+                    }
+                else:
+                    place = await _geocode(session, location, self.valves.language)
+                    if label:
+                        place["name"] = label
                 raw = await _fetch_forecast(
                     session,
                     place["latitude"],
@@ -851,8 +964,11 @@ class Tools:
 
         current = result["current"]
         cur_desc = _describe(current.get("code"))[0]
+        where = result["location_name"]
+        if result["country"]:
+            where = f"{where}, {result['country']}"
         summary_lines = [
-            f"Weather for {result['location_name']}, {result['country']}:",
+            f"Weather for {where}:",
             f"Currently: {cur_desc}, {round(_num(current.get('temp')))}{temp_unit} "
             f"(feels like {round(_num(current.get('feels_like')))}{temp_unit})",
             f"Humidity: {round(_num(current.get('humidity')))}% | "

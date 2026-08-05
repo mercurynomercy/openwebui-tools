@@ -8,12 +8,20 @@ chat. Every tool here is keyless: no API accounts, no secrets to manage.
 
 | Tool | File | Functions | What it does |
 | --- | --- | --- | --- |
-| **Open-Meteo Weather Forecast** | [`tools/weather_forecast.py`](tools/weather_forecast.py) | `get_weather_forecast(location)` | Fetches current conditions, an hourly strip and a multi-day forecast from [Open-Meteo](https://open-meteo.com), then renders an interactive HTML weather card in the chat and returns a text summary for the model to narrate. |
+| **Open-Meteo Weather Forecast** | [`tools/weather_forecast.py`](tools/weather_forecast.py) | `get_weather_forecast(location, location_label)` | Fetches current conditions, an hourly strip and a multi-day forecast from [Open-Meteo](https://open-meteo.com), then renders an interactive HTML weather card in the chat and returns a text summary for the model to narrate. |
 | **My Location** | [`tools/my_location.py`](tools/my_location.py) | `get_my_location()`, `clear_location_cache()` | Resolves where the user is, so location-aware tools don't need a city typed every time. Tries browser GPS first, falls back to IP geolocation, then to a manually configured home location. |
 
 ### Open-Meteo Weather Forecast
 
-- Accepts `"Sydney"` or `"Tokyo, JP"` — a 2-letter country code disambiguates the place lookup.
+- Accepts `"Melbourne"`, `"Tokyo, JP"`, a suburb-first chain like `"Carlton, Melbourne, AU"`, or
+  raw coordinates `"-37.80,144.97"`. Chained names are tried most specific first, so a suburb the
+  geocoder knows wins over the city behind it, and an unknown suburb falls back to that city
+  instead of erroring. `location_label` overrides the name shown on the card, which is what you
+  want when passing coordinates.
+- The rest of the chain disambiguates the suburb: `"Carlton, Melbourne, AU"` lands on Carlton in
+  Victoria, while `"Carlton, Sydney, AU"` lands on the Carlton in New South Wales — neither gets
+  the 996-person Carlton in Tasmania. Settlements also outrank landforms, so a suburb never loses
+  to a same-named park, dam or cape.
 - Weather icons are **inline SVG**, so the widget makes no external image or CDN requests.
 - The card is responsive (grid on wide screens, list on narrow) and reports its height back to
   Open WebUI so the sandboxed iframe sizes itself correctly.
@@ -35,10 +43,13 @@ chat. Every tool here is keyless: no API accounts, no secrets to manage.
   from proxy headers so it locates the browser rather than your server.
 - Coordinates are rounded before they leave the tool (default 2 decimals ≈ 1 km), and resolved
   locations are cached per user (default 30 minutes).
+- Reports a suburb-first place name (`Carlton, Melbourne, Victoria, AU`) **and**
+  coordinates, and tells the model to prefer the coordinates with the name as a display label —
+  so downstream tools stay accurate to the suburb rather than the nearest big city.
 
 **Valves** (admin): `enable_browser_gps`, `enable_ip_fallback`, `coordinate_precision`,
 `cache_minutes`, `language`.
-**User valves** (per user): `home_location` (e.g. `Sydney, AU`) and `always_use_home` to skip
+**User valves** (per user): `home_location` (e.g. `Melbourne, AU`) and `always_use_home` to skip
 detection entirely.
 
 The two tools are designed to work together — ask *"what's the weather like here?"* and the model
@@ -93,6 +104,7 @@ calls `get_my_location`, then passes the returned place name to `get_weather_for
 | `Browser location needs HTTPS or localhost` | Open WebUI is served over plain HTTP on a non-local host. Use HTTPS, or set a `home_location` user valve. |
 | Location is a different city | IP geolocation is city-level and follows your VPN exit node. Run `clear_location_cache` after switching networks, or set `always_use_home`. |
 | `could not find a location named …` | Add a country code: `Springfield, US`. |
+| Card names the city, not your suburb | Both tools must be on the new versions (weather ≥ 2.1.0, location ≥ 1.1.0); re-paste the source and hit Save. |
 
 ## License
 
