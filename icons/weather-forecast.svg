@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Weather forecast">
+  <title>Weather Forecast</title>
+  <defs>
+    <linearGradient id="wf-sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#0369a1"/>
+    </linearGradient>
+    <linearGradient id="wf-sun" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <linearGradient id="wf-cloud" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e2e8f0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="64" height="64" rx="14" fill="url(#wf-sky)"/>
+
+  <!-- sun, peeking out behind the cloud -->
+  <g fill="url(#wf-sun)">
+    <circle cx="44" cy="21" r="8"/>
+    <g stroke="url(#wf-sun)" stroke-width="3" stroke-linecap="round">
+      <line x1="44" y1="6" x2="44" y2="10"/>
+      <line x1="56.5" y1="13.5" x2="53.5" y2="16.5"/>
+      <line x1="59" y1="21" x2="55" y2="21"/>
+      <line x1="56.5" y1="28.5" x2="53.5" y2="25.5"/>
+      <line x1="31.5" y1="13.5" x2="34.5" y2="16.5"/>
+    </g>
+  </g>
+
+  <!-- cloud -->
+  <g fill="url(#wf-cloud)">
+    <circle cx="25" cy="37" r="9"/>
+    <circle cx="35" cy="33" r="11"/>
+    <circle cx="44" cy="39" r="7"/>
+    <rect x="25" y="38" width="19" height="9" rx="4.5"/>
+  </g>
+
+  <!-- rain -->
+  <g stroke="#bae6fd" stroke-width="3.2" stroke-linecap="round" opacity="0.95">
+    <line x1="25" y1="51" x2="22" y2="57"/>
+    <line x1="34" y1="51" x2="31" y2="57"/>
+    <line x1="43" y1="51" x2="40" y2="57"/>
+  </g>
+</svg>
