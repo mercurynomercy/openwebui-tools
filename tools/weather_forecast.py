@@ -4,6 +4,7 @@ description: Fetches weather forecasts from the Open-Meteo API (no API key requi
 author: Ryan Pan/ Open-Meteo port
 author_url: https://github.com/mercurynomercy/openwebui-tools
 funding_url: https://github.com/mercurynomercy/openwebui-tools
+icon_url: https://raw.githubusercontent.com/mercurynomercy/openwebui-tools/main/icons/weather-forecast.svg
 version: 2.1.0
 license: MIT
 required_open_webui_version: 0.11.0

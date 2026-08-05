@@ -96,6 +96,33 @@ calls `get_my_location`, then passes the returned place name to `get_weather_for
    The first location request will trigger a browser permission prompt. If you deny it, the tool
    silently falls back to IP geolocation.
 
+## Icons
+
+Each tool ships an icon in [`icons/`](icons), referenced from the tool's frontmatter with
+`icon_url`:
+
+```python
+"""
+title: Weather Forecast
+icon_url: https://raw.githubusercontent.com/mercurynomercy/openwebui-tools/main/icons/weather-forecast.svg
+...
+"""
+```
+
+| Icon | File | Used by |
+| --- | --- | --- |
+| <img src="icons/weather-forecast.svg" width="28"> | [`icons/weather-forecast.svg`](icons/weather-forecast.svg) | `tools/weather_forecast.py` |
+| <img src="icons/my-location.svg" width="28"> | [`icons/my-location.svg`](icons/my-location.svg) | `tools/my_location.py` |
+
+Both are 64×64 SVGs with an opaque rounded-tile background, so they stay legible against Open
+WebUI's light and dark themes and down to ~20 px. Open WebUI fetches the URL per render, so the
+icons are hosted rather than inlined as base64 — a data-URI icon is duplicated into every API
+response that lists the tool, which the Open WebUI docs specifically warn against.
+
+If your Open WebUI instance can't reach `raw.githubusercontent.com`, swap in the jsDelivr mirror
+(`https://cdn.jsdelivr.net/gh/mercurynomercy/openwebui-tools@main/icons/…`) or host the two files
+anywhere else that serves them as `image/svg+xml`.
+
 ### Troubleshooting
 
 | Symptom | Likely cause |

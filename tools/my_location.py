@@ -4,6 +4,7 @@ description: Resolves the user's current location so other tools (weather, maps,
 author: Ryan Pan
 author_url: https://github.com/mercurynomercy/openwebui-tools
 funding_url: https://github.com/mercurynomercy/openwebui-tools
+icon_url: https://raw.githubusercontent.com/mercurynomercy/openwebui-tools/main/icons/my-location.svg
 version: 1.1.0
 license: MIT
 required_open_webui_version: 0.11.0
